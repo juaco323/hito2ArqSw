@@ -1,0 +1,23 @@
+# Claves y certificados de dispositivo AWS IoT (no publicar)
+iot_agro_project/certs/private.pem.key
+iot_agro_project/certs/certificate.pem.crt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Entorno
+.env
+.env.*
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

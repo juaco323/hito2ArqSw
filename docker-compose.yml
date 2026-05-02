@@ -1,0 +1,101 @@
+# Proyecto: mina_iot_sector_norte — abrir esta carpeta en Docker Desktop y ejecutar el compose.
+# CLI: docker compose up --build -d
+# Stack: MongoDB, subscriber (AWS IoT), publicador, Flask, Streamlit (sin broker MQTT local).
+
+name: mina_iot_sector_norte
+
+services:
+  mongodb:
+    image: mongo:7.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "quit(db.adminCommand('ping').ok ? 0 : 2)"]
+      interval: 5s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  rest_api:
+    build:
+      context: ./iot_agro_project/rest_api
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    environment:
+      - GRUPO=zapallo
+      - SECTOR_ID=sector_norte_Fuenzalida_Vallejos
+      - MONGO_URI=mongodb://mongodb:27017/
+      - MONGO_DB=mina_iot
+      - MONGO_COLLECTION=lecturas
+
+  subscriber:
+    build:
+      context: ./iot_agro_project/mqtt_client
+      dockerfile: Dockerfile
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      - GRUPO=zapallo
+      - SECTOR_ID=sector_norte_Fuenzalida_Vallejos
+      - AWS_IOT_ENDPOINT=a2apsmaa0mdv52-ats.iot.us-east-1.amazonaws.com
+      - CERT_DIR=/app/certs
+      - MONGO_URI=mongodb://mongodb:27017/
+      - MONGO_DB=mina_iot
+      - MONGO_COLLECTION=lecturas
+    volumes:
+      - ./iot_agro_project/certs:/app/certs:ro
+
+  publicador:
+    build:
+      context: ./iot_agro_project/sensors
+      dockerfile: Dockerfile
+    command: publicador_zona.py
+    depends_on:
+      subscriber:
+        condition: service_started
+    restart: unless-stopped
+    environment:
+      - GRUPO=zapallo
+      - SECTOR_ID=sector_norte_Fuenzalida_Vallejos
+      - AWS_IOT_ENDPOINT=a2apsmaa0mdv52-ats.iot.us-east-1.amazonaws.com
+      - CERT_DIR=/app/certs
+    volumes:
+      - ./iot_agro_project/certs:/app/certs:ro
+
+  frontend:
+    build:
+      context: ./iot_agro_project/frontend
+      dockerfile: Dockerfile
+    ports:
+      - "8501:8501"
+    depends_on:
+      rest_api:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      - STREAMLIT_API_BASE=http://rest_api:5000
+      - SECTOR_ID=sector_norte_Fuenzalida_Vallejos
+
+volumes:
+  mongo_data:

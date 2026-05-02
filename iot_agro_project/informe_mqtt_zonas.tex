@@ -1,0 +1,661 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{mdframed}
+\usepackage{tcolorbox}
+\usepackage{amsmath}
+
+\geometry{margin=2.5cm}
+
+% ── Colores ────────────────────────────────────────────────────────────────────
+\definecolor{codebg}{HTML}{F5F5F5}
+\definecolor{codeframe}{HTML}{CCCCCC}
+\definecolor{keywordcolor}{HTML}{0000CC}
+\definecolor{stringcolor}{HTML}{008000}
+\definecolor{commentcolor}{HTML}{888888}
+\definecolor{alertbg}{HTML}{FFF8E1}
+\definecolor{alertborder}{HTML}{F9A825}
+\definecolor{taskbg}{HTML}{E8F5E9}
+\definecolor{taskborder}{HTML}{2E7D32}
+
+% ── Estilos de código ──────────────────────────────────────────────────────────
+\lstdefinestyle{python}{
+  language=Python,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{keywordcolor}\bfseries,
+  stringstyle=\color{stringcolor},
+  commentstyle=\color{commentcolor}\itshape,
+  breaklines=true,
+  showstringspaces=false,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=8pt,
+  tabsize=4
+}
+
+\lstdefinestyle{texto}{
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  showstringspaces=false
+}
+
+% ── Cajas de consigna ──────────────────────────────────────────────────────────
+\tcbuselibrary{skins, breakable}
+
+\newtcolorbox{consigna}[1]{
+  colback=taskbg,
+  colframe=taskborder,
+  fonttitle=\bfseries,
+  title=#1,
+  breakable
+}
+
+\newtcolorbox{atencion}{
+  colback=alertbg,
+  colframe=alertborder,
+  fonttitle=\bfseries,
+  title={Atención},
+  breakable
+}
+
+% ── Encabezado ─────────────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Tópico de Especialidad II}
+\lhead{Trabajo Práctico — MQTT Avanzado}
+\rfoot{Página \thepage}
+
+\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue}
+
+% ==============================================================================
+\begin{document}
+% ==============================================================================
+
+\begin{titlepage}
+  \centering
+  \vspace*{1.5cm}
+  {\large Universidad — Ingeniería en Sistemas\par}
+  \vspace{0.3cm}
+  {\large Tópico de Especialidad II\par}
+  \vspace{1.5cm}
+  \rule{\linewidth}{0.5pt}\\[0.4cm]
+  {\LARGE\bfseries Trabajo Práctico N.\textsuperscript{o} 2\par}
+  \vspace{0.4cm}
+  {\Large MQTT Avanzado: QoS, Topics Jerárquicos y Wildcards\par}
+  \vspace{0.4cm}
+  {\large Extensión del Sistema IoT Agrícola\par}
+  \rule{\linewidth}{0.5pt}\\[1.5cm]
+  \begin{tabular}{ll}
+    \textbf{Modalidad:}   & Grupal (2 a 3 integrantes) \\[4pt]
+    \textbf{Entrega:}     & Según cronograma de la cátedra \\[4pt]
+    \textbf{Formato:}     & Repositorio + informe PDF + demo en vivo \\
+  \end{tabular}
+  \vfill
+  {\large \today\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ==============================================================================
+\section{Introducción}
+% ==============================================================================
+
+En el trabajo práctico anterior se construyó el proyecto \textbf{iot\_agro\_project},
+un sistema de sensorización agrícola que combina el protocolo MQTT para la
+telemetría de campo con una REST API para la consulta de datos desde un dashboard
+Streamlit, persistiendo la información en MongoDB.
+
+Si bien el sistema funciona correctamente en su forma actual, presenta tres
+limitaciones técnicas que lo alejan de un escenario de producción real:
+
+\begin{enumerate}
+  \item \textbf{Sin garantías de entrega:} los mensajes MQTT se publican con QoS 0
+        (\textit{fire and forget}). Si el broker o la red fallan en el momento de
+        la transmisión, los datos se pierden sin ningún mecanismo de reenvío.
+
+  \item \textbf{Sin diferenciación de cultivos:} todos los sensores publican en un
+        único topic genérico (\texttt{campo/sensores}), sin distinguir a qué zona
+        o cultivo pertenece cada lectura. El sistema no puede responder preguntas
+        como \textit{``¿cuál es la humedad actual en la zona de tomate?''}.
+
+  \item \textbf{Sin uso de wildcards:} el suscriptor se conecta a un topic fijo y
+        exacto. Agregar una nueva zona requiere modificar el código fuente del
+        suscriptor, lo cual no es escalable.
+\end{enumerate}
+
+El objetivo de este trabajo es que el grupo comprenda, implemente y verifique
+las soluciones a estas tres limitaciones utilizando las capacidades nativas
+del protocolo MQTT.
+
+% ==============================================================================
+\section{Marco Teórico}
+% ==============================================================================
+
+Antes de realizar cualquier modificación al código, el grupo debe tener en claro
+los conceptos que se explican a continuación. Se recomienda leer esta sección
+completa y discutirla en grupo antes de comenzar la implementación.
+
+% ------------------------------------------------------------------------------
+\subsection{Quality of Service (QoS)}
+% ------------------------------------------------------------------------------
+
+QoS es el mecanismo de MQTT que define el contrato de entrega entre cliente
+y broker. Establece cuántos intentos de entrega se realizan y qué confirmaciones
+se intercambian en cada caso.
+
+\subsubsection{QoS 0 — At most once}
+
+\begin{lstlisting}[style=texto]
+Publisher          Broker          Subscriber
+    |                |                 |
+    |--PUBLISH------->|                 |
+    |   (sin ACK)     |--PUBLISH------->|
+    |                 |   (sin ACK)     |
+\end{lstlisting}
+
+El mensaje se transmite una única vez sin ninguna confirmación. Si el broker
+no está disponible o la red falla durante la transmisión, el mensaje se pierde
+permanentemente. Es el nivel por defecto en \texttt{paho-mqtt} cuando no se
+especifica el parámetro \texttt{qos}.
+
+\textbf{Consecuencia práctica:} en una red WiFi con interferencias o en un sensor
+alimentado por batería que puede perder conexión, un porcentaje de lecturas nunca
+llegará al sistema. Esto es aceptable si la frecuencia de muestreo es muy alta
+y perder muestras individuales no afecta el análisis.
+
+\subsubsection{QoS 1 — At least once}
+
+\begin{lstlisting}[style=texto]
+Publisher          Broker
+    |                |
+    |--PUBLISH(id=5)->|   El publisher asigna un ID al mensaje
+    |<--PUBACK(id=5)--|   El broker confirma recepcion
+    |                |
+    (si no llega PUBACK, el publisher reenvía el mensaje)
+\end{lstlisting}
+
+El publisher almacena el mensaje hasta recibir la confirmación \texttt{PUBACK}
+del broker. Si no la recibe en el tiempo esperado, reenvía el mensaje. Esto
+garantiza que el mensaje llega \textbf{al menos una vez}, pero puede llegar
+\textbf{duplicado} si el \texttt{PUBACK} se pierde en tránsito (el broker ya
+recibió el mensaje pero la confirmación no llegó al publisher).
+
+\textbf{Consecuencia práctica:} en el contexto de sensores agrícolas, un mensaje
+duplicado significa una lectura duplicada en MongoDB, lo cual puede filtrarse
+fácilmente en la consulta. Es el balance razonable entre confiabilidad y overhead.
+
+\subsubsection{QoS 2 — Exactly once}
+
+\begin{lstlisting}[style=texto]
+Publisher          Broker
+    |                |
+    |--PUBLISH------->|   Paso 1: envio
+    |<--PUBREC--------|   Paso 2: broker acusa recibo
+    |--PUBREL-------->|   Paso 3: publisher libera
+    |<--PUBCOMP-------|   Paso 4: broker confirma finalizacion
+\end{lstlisting}
+
+Un protocolo de cuatro pasos que garantiza entrega exactamente una vez, sin
+pérdidas ni duplicados. El costo es cuatro tramas TCP por mensaje en lugar de
+una (QoS 0) o dos (QoS 1).
+
+\textbf{Consecuencia práctica:} apropiado para comandos a actuadores (activar
+una válvula de riego, aplicar un fertilizante) donde duplicar la acción tendría
+consecuencias reales. Para telemetría de sensores es generalmente excesivo.
+
+\subsubsection{Regla del mínimo}
+
+El nivel de QoS efectivo de una entrega es siempre el \textbf{mínimo} entre
+el QoS declarado por el publisher y el QoS declarado por el subscriber. Si el
+sensor publica con QoS 1 pero el subscriber se suscribe con QoS 0, la entrega
+final al subscriber no tendrá confirmación.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lccc}
+\toprule
+\textbf{Característica}   & \textbf{QoS 0} & \textbf{QoS 1} & \textbf{QoS 2} \\
+\midrule
+Garantía de entrega       & Ninguna         & Al menos 1 vez  & Exactamente 1 vez \\
+Posible pérdida           & Sí              & No              & No \\
+Posible duplicado         & No              & Sí              & No \\
+Tramas TCP por mensaje    & 1               & 2               & 4 \\
+Overhead de red           & Mínimo          & Medio           & Alto \\
+\bottomrule
+\end{tabular}
+\caption{Comparativa de niveles de QoS en MQTT}
+\end{table}
+
+% ------------------------------------------------------------------------------
+\subsection{Topics Jerárquicos}
+% ------------------------------------------------------------------------------
+
+Un topic MQTT es una cadena de texto que define el \textit{canal} por el que
+circula un mensaje. El broker lo usa para enrutar cada publicación hacia los
+suscriptores correspondientes.
+
+Los topics pueden organizarse en jerarquías separando niveles con el
+carácter \textbf{/}:
+
+\begin{lstlisting}[style=texto]
+campo/tomate/sensores
+  ^      ^       ^
+nivel1  nivel2  nivel3
+\end{lstlisting}
+
+Esta estructura es arbitraria —el broker no impone ningún esquema— pero seguir
+una convención jerárquica tiene ventajas concretas:
+
+\begin{itemize}
+  \item Permite filtrar mensajes con precisión usando wildcards (ver sección
+        siguiente).
+  \item Hace el sistema más legible y autodocumentado.
+  \item Facilita el control de acceso: en un broker con autenticación,
+        es posible dar permiso a un cliente solo sobre ciertos prefijos.
+\end{itemize}
+
+\textbf{Ejemplo aplicado a este proyecto:} en lugar de un topic plano y genérico,
+se podría diseñar la siguiente jerarquía:
+
+\begin{lstlisting}[style=texto]
+campo/tomate/sensores
+campo/zanahoria/sensores
+campo/maiz/sensores
+\end{lstlisting}
+
+Con este diseño, cada lectura lleva implícita en su topic la zona de cultivo a
+la que pertenece.
+
+% ------------------------------------------------------------------------------
+\subsection{Wildcards MQTT}
+% ------------------------------------------------------------------------------
+
+Los wildcards son caracteres especiales que solo pueden usarse en las
+\textbf{suscripciones}, nunca en las publicaciones.
+
+\subsubsection{Wildcard de un nivel: \texttt{+}}
+
+Reemplaza exactamente un nivel en la jerarquía del topic.
+
+\begin{lstlisting}[style=texto]
+Patron de suscripcion:   campo/+/sensores
+
+Coincide con:
+  campo/tomate/sensores      <- nivel 2 = "tomate"
+  campo/zanahoria/sensores   <- nivel 2 = "zanahoria"
+  campo/maiz/sensores        <- nivel 2 = "maiz"
+
+NO coincide con:
+  campo/sensores             <- solo 2 niveles
+  campo/tomate/zona1/sens    <- 4 niveles
+\end{lstlisting}
+
+\subsubsection{Wildcard multinivel: \texttt{\#}}
+
+Reemplaza cualquier cantidad de niveles desde el punto donde se coloca.
+Solo puede aparecer al final del topic.
+
+\begin{lstlisting}[style=texto]
+Patron de suscripcion:   campo/#
+
+Coincide con:
+  campo/tomate/sensores
+  campo/zanahoria/sensores
+  campo/actuadores/riego     <- TAMBIEN capturaría esto
+  campo/sistema/alertas      <- y esto
+\end{lstlisting}
+
+\subsubsection{Diferencia clave entre \texttt{+} y \texttt{\#}}
+
+El wildcard \texttt{+} es \textbf{selectivo}: captura mensajes que cumplan
+exactamente la estructura definida. El wildcard \texttt{\#} es \textbf{amplio}:
+captura todo lo que esté bajo un prefijo dado, incluyendo topics que podrían
+tener semánticas completamente distintas (sensores, actuadores, alertas, etc.).
+
+En una arquitectura bien diseñada, usar \texttt{+} en lugar de \texttt{\#}
+es preferible porque limita el alcance del suscriptor al tipo de dato
+que realmente necesita procesar.
+
+% ==============================================================================
+\section{Estado Actual del Proyecto}
+% ==============================================================================
+
+El código entregado en el TP anterior presenta la siguiente configuración MQTT:
+
+\textbf{En \texttt{sensors/sensor.py}} — el sensor publica en un topic fijo
+sin especificar QoS:
+
+\begin{lstlisting}[style=python]
+client.publish("campo/sensores", json.dumps(data))
+# QoS no especificado -> usa QoS 0 por defecto
+# Topic fijo: no hay distincion de zona o cultivo
+\end{lstlisting}
+
+\textbf{En \texttt{mqtt\_client/subscriber.py}} — el suscriptor se conecta
+a un topic exacto sin wildcard:
+
+\begin{lstlisting}[style=python]
+client.subscribe("campo/sensores")
+# Topic exacto: no usa wildcard
+# Si se agrega una nueva zona, hay que modificar este archivo
+\end{lstlisting}
+
+\textbf{En \texttt{docker-compose.yml}} — los sensores solo reciben
+\texttt{SENSOR\_ID} como variable de entorno, sin ninguna referencia a zona:
+
+\begin{lstlisting}[style=texto]
+sensor1:
+  environment:
+    - SENSOR_ID=1
+
+sensor2:
+  environment:
+    - SENSOR_ID=2
+\end{lstlisting}
+
+\begin{atencion}
+El grupo \textbf{no debe modificar} ningún archivo del proyecto base antes de
+haber leído y comprendido completamente la sección de consignas. Los cambios
+deben realizarse de forma ordenada, justificando cada decisión en el informe.
+\end{atencion}
+
+% ==============================================================================
+\section{Consignas}
+% ==============================================================================
+
+% ------------------------------------------------------------------------------
+\subsection{Parte 1 — Implementar QoS 1 en el sistema}
+% ------------------------------------------------------------------------------
+
+\begin{consigna}{Consigna 1.1 — Activar QoS 1 en la publicación}
+Modificar \texttt{sensors/sensor.py} para que cada mensaje se publique con
+QoS nivel 1. La API de \texttt{paho-mqtt} recibe el nivel de QoS como parámetro
+del método \texttt{publish()}. Investigar la firma del método y aplicar el
+cambio correspondiente.
+\end{consigna}
+
+\begin{consigna}{Consigna 1.2 — Activar QoS 1 en la suscripción}
+Modificar \texttt{mqtt\_client/subscriber.py} para que la suscripción al
+topic se realice con QoS nivel 1. El método \texttt{subscribe()} de
+\texttt{paho-mqtt} acepta el nivel de QoS como argumento. Investigar y aplicar.
+\end{consigna}
+
+\begin{consigna}{Consigna 1.3 — Verificar el QoS recibido}
+El objeto \texttt{msg} que llega al callback \texttt{on\_message()} contiene
+el atributo \texttt{msg.qos} que indica el QoS con el que fue entregado ese
+mensaje. Modificar el callback para que:
+\begin{itemize}
+  \item Imprima por consola el QoS de cada mensaje recibido.
+  \item Almacene el valor de \texttt{msg.qos} como campo en el documento
+        de MongoDB junto con los demás datos del sensor.
+\end{itemize}
+Verificar en MongoDB Compass que el campo \texttt{qos} aparece en los
+documentos con el valor esperado.
+\end{consigna}
+
+\textbf{Preguntas a responder en el informe:}
+\begin{itemize}
+  \item ¿Por qué se eligió QoS 1 y no QoS 2 para este sistema?
+  \item ¿Qué pasaría si el publisher usa QoS 1 pero el subscriber
+        se suscribe con QoS 0? ¿Qué nivel efectivo tendría la entrega?
+  \item ¿En qué escenario concreto del dominio agrícola sería necesario
+        usar QoS 2?
+\end{itemize}
+
+% ------------------------------------------------------------------------------
+\subsection{Parte 2 — Topics jerárquicos por zona de cultivo}
+% ------------------------------------------------------------------------------
+
+\begin{consigna}{Consigna 2.1 — Agregar la variable de entorno ZONA}
+Modificar \texttt{docker-compose.yml} para que cada servicio sensor reciba,
+además de \texttt{SENSOR\_ID}, una nueva variable de entorno llamada
+\texttt{ZONA}. Definir al menos tres zonas distintas, por ejemplo:
+\texttt{tomate}, \texttt{zanahoria} y \texttt{maiz}. Puede renombrar
+los servicios para que el nombre refleje la zona correspondiente.
+\end{consigna}
+
+\begin{consigna}{Consigna 2.2 — Construir el topic dinámicamente}
+Modificar \texttt{sensors/sensor.py} para que:
+\begin{itemize}
+  \item Lea la variable de entorno \texttt{ZONA} al iniciar.
+  \item Construya el topic de publicación usando la estructura
+        \texttt{campo/<zona>/sensores}, donde \texttt{<zona>} proviene
+        de la variable de entorno.
+  \item Incluya el valor de \texttt{zona} en el payload JSON que publica
+        para que el dato viaje también en el mensaje.
+\end{itemize}
+El mismo archivo \texttt{sensor.py} debe poder ser reutilizado por todos
+los contenedores de sensores sin modificación. Solo las variables de entorno
+deben diferenciar su comportamiento.
+\end{consigna}
+
+\begin{consigna}{Consigna 2.3 — Verificar los topics en el broker}
+Con el sistema levantado, utilizar un cliente MQTT externo compatible con
+\textbf{AWS IoT Core} (por ejemplo, \textbf{MQTT Explorer} con TLS y los certificados del thing,
+o la \textbf{Consola $\rightarrow$ MQTT test client} en AWS IoT Core) para suscribirse
+a cada topic individualmente y verificar que los mensajes llegan al topic correcto.
+\textit{No aplica} suscripción anónima a \texttt{localhost:1883}: la consigna del Hito 2 exige el broker
+gestionado en la nube, no Mosquitto local.
+
+Ejemplo de forma genérica (endpoint y rutas de certificado según el entorno):
+\begin{lstlisting}[style=texto]
+# Cliente con TLS al endpoint a2apsmaa0mdv52-ats.iot.*.amazonaws.com:8883
+# (no usar broker local :1883 para la entrega Hito 2)
+\end{lstlisting}
+\end{consigna}
+
+\textbf{Preguntas a responder en el informe:}
+\begin{itemize}
+  \item ¿Qué ventaja tiene diseñar la jerarquía de topics como
+        \texttt{campo/<zona>/sensores} en lugar de usar un topic
+        plano como \texttt{sensores-campo}?
+  \item ¿Cómo afecta este cambio al subscriber? ¿Sigue funcionando
+        sin modificaciones? Justificar.
+\end{itemize}
+
+% ------------------------------------------------------------------------------
+\subsection{Parte 3 — Wildcard en el suscriptor}
+% ------------------------------------------------------------------------------
+
+\begin{consigna}{Consigna 3.1 — Suscripción con wildcard \texttt{+}}
+Modificar \texttt{mqtt\_client/subscriber.py} para que, en lugar de
+suscribirse a un topic fijo, utilice el wildcard \texttt{+} para
+capturar mensajes de todas las zonas con un único \texttt{subscribe()}.
+
+El patrón de suscripción debe tener la forma \texttt{campo/+/sensores}.
+\end{consigna}
+
+\begin{consigna}{Consigna 3.2 — Extraer la zona desde el topic recibido}
+Cuando el broker entrega un mensaje al callback \texttt{on\_message()},
+el objeto \texttt{msg} tiene el atributo \texttt{msg.topic} que contiene
+el topic exacto por el que llegó ese mensaje (por ejemplo,
+\texttt{campo/tomate/sensores}).
+
+Modificar el callback para que:
+\begin{itemize}
+  \item Extraiga el nombre de la zona del topic recibido usando manipulación
+        de strings (\texttt{split()}).
+  \item Almacene la zona como campo \texttt{zona} en el documento de MongoDB,
+        independientemente de si el payload ya la incluye o no.
+\end{itemize}
+\end{consigna}
+
+\begin{consigna}{Consigna 3.3 — Demostrar la escalabilidad}
+Sin modificar el código del subscriber, agregar un cuarto sensor con una
+nueva zona (por ejemplo, \texttt{lechuga}) solo en \texttt{docker-compose.yml}
+y verificar que:
+\begin{itemize}
+  \item El subscriber captura automáticamente los mensajes de la nueva zona.
+  \item Los documentos de esa zona aparecen correctamente en MongoDB.
+\end{itemize}
+Esto demuestra que el diseño con wildcard es escalable.
+Documentar este experimento en el informe con capturas de logs.
+\end{consigna}
+
+\textbf{Preguntas a responder en el informe:}
+\begin{itemize}
+  \item ¿Por qué se usa \texttt{campo/+/sensores} en lugar de \texttt{campo/\#}?
+        Describir al menos un escenario donde \texttt{campo/\#} capturaría
+        mensajes no deseados.
+  \item ¿Cómo debería modificarse el subscriber si en el futuro se quisiera
+        ignorar mensajes de una zona específica?
+\end{itemize}
+
+% ------------------------------------------------------------------------------
+\subsection{Parte 4 — Extensión de la REST API}
+% ------------------------------------------------------------------------------
+
+\begin{consigna}{Consigna 4.1 — Endpoint de filtrado por zona}
+La REST API actual solo expone \texttt{GET /logs} que devuelve las últimas
+20 lecturas sin importar la zona. Agregar en \texttt{rest\_api/app.py}
+los siguientes endpoints:
+\begin{itemize}
+  \item \texttt{GET /logs/<zona>} — devuelve las últimas 20 lecturas de
+        una zona específica, filtrando por el campo \texttt{zona} en MongoDB.
+  \item \texttt{GET /zonas} — devuelve la lista de zonas distintas presentes
+        en la colección, usando la operación \texttt{distinct()} de PyMongo.
+\end{itemize}
+Verificar ambos endpoints con \texttt{curl} o un cliente REST (Postman,
+Insomnia, etc.) e incluir las respuestas en el informe.
+\end{consigna}
+
+% ------------------------------------------------------------------------------
+\subsection{Parte 5 — Dashboard Streamlit separado por zonas}
+% ------------------------------------------------------------------------------
+
+\begin{consigna}{Consigna 5.1 — Tabs por zona de cultivo}
+Modificar \texttt{frontend/app.py} para reemplazar la vista única por un
+dashboard organizado en tabs, donde cada tab corresponde a una zona de cultivo.
+Los requerimientos son:
+
+\begin{enumerate}
+  \item Las zonas disponibles deben obtenerse dinámicamente consultando
+        el endpoint \texttt{GET /zonas} de la API, no estar hardcodeadas
+        en el código del frontend.
+  \item Cada tab debe mostrar únicamente las lecturas de su zona correspondiente,
+        consultando \texttt{GET /logs/<zona>}.
+  \item Cada tab debe incluir al menos:
+        \begin{itemize}
+          \item Una métrica con la temperatura promedio de las últimas lecturas.
+          \item Una métrica con la humedad promedio.
+          \item Una tabla con las lecturas individuales.
+          \item Un gráfico de línea con la evolución de temperatura y humedad.
+        \end{itemize}
+  \item Debe existir un tab adicional llamado ``Todas las zonas'' que muestre
+        las últimas 20 lecturas globales (\texttt{GET /logs}) con un gráfico
+        comparativo por zona.
+\end{enumerate}
+
+Si se agrega una nueva zona al sistema (nueva entrada en \texttt{docker-compose.yml}),
+el dashboard debe mostrar el nuevo tab automáticamente sin requerir cambios en
+el código del frontend.
+\end{consigna}
+
+% ==============================================================================
+\section{Criterios de Evaluación}
+% ==============================================================================
+
+\begin{table}[h]
+\centering
+\begin{tabular}{p{7cm}c}
+\toprule
+\textbf{Criterio} & \textbf{Puntaje} \\
+\midrule
+Parte 1: QoS 1 implementado y verificado en MongoDB & 15 pts \\
+Parte 2: Topics por zona funcionando correctamente & 20 pts \\
+Parte 3: Wildcard y escalabilidad demostrada & 20 pts \\
+Parte 4: Endpoints REST por zona & 15 pts \\
+Parte 5: Dashboard Streamlit por zonas & 20 pts \\
+Calidad del informe y respuestas a preguntas & 10 pts \\
+\midrule
+\textbf{Total} & \textbf{100 pts} \\
+\bottomrule
+\end{tabular}
+\caption{Distribución de puntaje}
+\end{table}
+
+% ==============================================================================
+\section{Formato de Entrega}
+% ==============================================================================
+
+\subsection{Repositorio}
+
+El grupo debe entregar un repositorio (GitHub, GitLab o similar) con:
+\begin{itemize}
+  \item El código fuente completo del proyecto con todos los cambios aplicados.
+  \item Un archivo \texttt{README.md} actualizado con las instrucciones para
+        levantar el sistema.
+  \item Un archivo \texttt{.env.example} o similar documentando todas las
+        variables de entorno utilizadas.
+\end{itemize}
+
+\subsection{Informe}
+
+Un documento PDF que incluya:
+\begin{enumerate}
+  \item Portada con integrantes del grupo y fecha de entrega.
+  \item Para cada parte: descripción de los cambios realizados, fragmentos
+        de código relevantes y capturas de pantalla o logs que demuestren
+        el funcionamiento.
+  \item Respuestas fundamentadas a todas las preguntas planteadas en las
+        consignas.
+  \item Una sección de conclusiones grupales sobre las ventajas y desventajas
+        de los mecanismos implementados (QoS, topics jerárquicos, wildcards)
+        en el contexto de sistemas IoT reales.
+\end{enumerate}
+
+\subsection{Demo en vivo}
+
+Durante la instancia de defensa, el grupo debe poder:
+\begin{itemize}
+  \item Levantar el sistema completo con \texttt{docker compose up --build}.
+  \item Mostrar en tiempo real los logs de los sensores y el subscriber.
+  \item Navegar el dashboard Streamlit mostrando los tabs por zona.
+  \item Agregar un nuevo sensor con una zona nueva y demostrar que el
+        subscriber y el dashboard lo incorporan automáticamente.
+  \item Mostrar los documentos almacenados en MongoDB Compass con los
+        campos \texttt{zona} y \texttt{qos}.
+\end{itemize}
+
+% ==============================================================================
+\section{Recursos de Consulta}
+% ==============================================================================
+
+\begin{itemize}
+  \item OASIS MQTT Technical Committee. \textit{MQTT Version 5.0 Specification}.
+        \url{https://docs.oasis-open.org/mqtt/mqtt/v5.0/mqtt-v5.0.html}
+  \item Eclipse Paho. \textit{paho-mqtt Python Client}.
+        \url{https://eclipse.dev/paho/files/paho.mqtt.python/html/index.html}
+  \item HiveMQ. \textit{MQTT Essentials — QoS Levels}.
+        \url{https://www.hivemq.com/mqtt-essentials/}
+  \item MongoDB Inc. \textit{PyMongo — Query Documents}.
+        \url{https://pymongo.readthedocs.io/en/stable/tutorial.html}
+  \item Streamlit Inc. \textit{st.tabs — API reference}.
+        \url{https://docs.streamlit.io/develop/api-reference/layout/st.tabs}
+\end{itemize}
+
+\begin{atencion}
+Queda prohibido el uso de herramientas de generación automática de código
+(LLMs, Copilot, etc.) para resolver las consignas. El informe debe demostrar
+comprensión genuina de cada cambio realizado. Durante la defensa se podrán
+realizar preguntas individuales a cualquier integrante del grupo.
+\end{atencion}
+
+\end{document}
