@@ -1,6 +1,7 @@
 # Proyecto: mina_iot_sector_norte — abrir esta carpeta en Docker Desktop y ejecutar el compose.
 # CLI: docker compose up --build -d
 # Stack: MongoDB, subscriber (AWS IoT), publicador, Flask, Streamlit (sin broker MQTT local).
+# Monitorización: Prometheus :9090, Grafana :3000 (admin/admin), MongoDB exporter :9216.
 
 name: mina_iot_sector_norte
 
@@ -51,6 +52,8 @@ services:
     build:
       context: ./iot_agro_project/mqtt_client
       dockerfile: Dockerfile
+    ports:
+      - "9101:9101"
     depends_on:
       mongodb:
         condition: service_healthy
@@ -71,6 +74,8 @@ services:
       context: ./iot_agro_project/sensors
       dockerfile: Dockerfile
     command: publicador_zona.py
+    ports:
+      - "9102:9102"
     depends_on:
       subscriber:
         condition: service_started
@@ -96,6 +101,49 @@ services:
     environment:
       - STREAMLIT_API_BASE=http://rest_api:5000
       - SECTOR_ID=sector_norte_Fuenzalida_Vallejos
+
+  mongodb_exporter:
+    image: percona/mongodb_exporter:0.42
+    command:
+      - "--mongodb.uri=mongodb://mongodb:27017"
+    ports:
+      - "9216:9216"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    depends_on:
+      - subscriber
+      - publicador
+      - mongodb_exporter
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
 
 volumes:
   mongo_data:

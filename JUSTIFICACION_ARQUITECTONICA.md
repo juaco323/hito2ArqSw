@@ -8,13 +8,14 @@ Proyecto orientado a la evaluación sumativa **«Sistema IoT para monitoreo de e
 
 El sistema sigue un patrón **orientado a eventos / publicar–suscribir** entre borde simulado y núcleo de procesamiento:
 
-1. **Publicadores** (contenedores Python + PAHO) generan telemetría de producción, química y seguridad y la envían al **broker único** **AWS IoT Core** mediante MQTT sobre TLS (puerto 8883).
-2. El **subscriber** se suscribe con un wildcard jerárquico al prefijo del sector y persiste cada mensaje válido en **MongoDB** con marca temporal **UTC**.
-3. **Flask** expone la colección mediante **REST** (solo lectura para el dashboard), permitiendo filtrar por categoría y tipo de sensor.
+1. **Publicadores** (contenedores Python + PAHO) generan telemetría de producción, química y seguridad y la envían al **broker único** **AWS IoT Core** mediante MQTT sobre TLS (puerto 8883). Cada payload incluye **`published_at`** (UTC) para medir latencia de punta a punta hasta el subscriber.
+2. El **subscriber** se suscribe con un wildcard jerárquico al prefijo del sector y persiste cada mensaje válido en **MongoDB** con marca temporal **UTC** (`timestamp` al persistir). Expone métricas **Prometheus** en `:9101`.
+3. **Flask** expone la colección mediante **REST** (solo lectura para el dashboard), con documentación interactiva **Swagger** en `/apidocs/`, filtrando por categoría y tipo de sensor.
 4. **Streamlit** consume el API, aplica filtros en la UI y muestra tablas y **gráficos de tendencia** (Plotly), con actualización **cuasi en tiempo real** (auto-refresh).
-5. **Docker Compose** orquesta MongoDB, subscriber, API, frontend y el publicador de zona para un despliegue reproducible.
+5. **Prometheus** recolecta series temporales del subscriber, del publicador (`:9102`), del **mongodb_exporter** (`:9216`) y de sí mismo; **Grafana** (`:3000`) visualiza un dashboard con **latencia de transmisión**, **frecuencia de publicación/ingesta** y **volumen aproximado de datos** en MongoDB.
+6. **Docker Compose** orquesta MongoDB, subscriber, API, frontend, publicador, Prometheus, Grafana y el exporter para un despliegue reproducible.
 
-Esta separación desacopla el **ritmo de publicación MQTT** del **consumo HTTP** del operador: los sensores no conocen al dashboard; el dashboard no bloquea la ingesta.
+Esta separación desacopla el **ritmo de publicación MQTT** del **consumo HTTP** del operador: los sensores no conocen al dashboard; el dashboard no bloquea la ingesta. La capa de observabilidad mide el sistema sin formar parte del camino crítico MQTT→MongoDB→REST.
 
 ## 2. Decisiones clave y su motivación
 
@@ -72,22 +73,71 @@ Esta separación desacopla el **ritmo de publicación MQTT** del **consumo HTTP*
 
 ### 2.6 Contenedores Docker
 
-**Decisión:** Un servicio por rol (ingesta, DB, API, UI, un publicador que concentra la telemetría de la zona).
+**Decisión:** Un servicio por rol (ingesta, DB, API, UI, publicador, observabilidad).
 
 **Por qué:**
 
 - Reproducibilidad para corrección y presentación oral.
 - Escalar horizontalmente publicadores o réplicas del subscriber en escenarios mayores (con cuidado de **IDs de cliente MQTT únicos** y políticas AWS).
 
+### 2.7 Observabilidad (Prometheus + Grafana)
+
+**Decisión:** **Prometheus** hace *scrape* periódico de endpoints `/metrics` (formato estándar); **Grafana** consume Prometheus como *datasource* y muestra paneles de latencia (histograma `mina_mqtt_ingest_latency_seconds`), tasas de mensajes publicados/recibidos y tamaño de datos de BD vía **mongodb_exporter**.
+
+**Por qué:**
+
+- Las métricas técnicas pedidas en la rúbrica (latencia, frecuencia, volumen almacenado) quedan **verificables** con consultas PromQL y dashboards, sin acoplar la instrumentación al frontend Streamlit.
+- Prometheus y Grafana son el par habitual **recolectar / visualizar**; no sustituyen al broker ni a MongoDB.
+
+### 2.8 Documentación de API (Flask + Flasgger)
+
+**Decisión:** Integrar **Flasgger** en Flask para generar **Swagger UI** (`/apidocs/`) y especificación OpenAPI 2.0, sin alterar el comportamiento de `/health`, `/logs` ni `/meta`.
+
+**Por qué:**
+
+- Facilita pruebas manuales y la defensa oral del contrato REST; la validación de peticiones entrantes no se activa para no cambiar el comportamiento de los clientes existentes.
+
 ## 3. Métricas estimadas (para exposición oral)
 
 | Concepto | Estimación orientativa |
 |----------|-------------------------|
 | Frecuencia del publicador | Una ronda completa de métricas (~9 publicaciones) cada ~13 s → orden de **0,5–0,7 eventos/s** en conjunto |
-| Latencia publicador → suscriptor | Típicamente **100 ms–1 s** en Internet hogar/lab; medible con logs `timestamp` embebidos |
-| Volumen en MongoDB | Con un publicador por zona activo, órdenes de **decenas de miles de documentos/día** si se dejara 24 h; en demo de minutos, bastante menor |
+| Latencia publicador → suscriptor | Típicamente **100 ms–1 s** en Internet hogar/lab; **medición objetiva** en Grafana/Prometheus: percentiles sobre `mina_mqtt_ingest_latency_seconds` (tiempo entre `published_at` y recepción en el subscriber) |
+| Volumen en MongoDB | Con un publicador por zona activo, órdenes de **decenas de miles de documentos/día** si se dejara 24 h; en demo de minutos, bastante menor; **tamaño en bytes** consultable vía métricas `mongodb_dbstats_data_size_bytes` o `mongosh` |
 
-(Ajustar números midiendo en tu red durante la demo.)
+(Ajustar números midiendo en tu red durante la demo. Scripts de consulta en `monitoring/scripts/`.)
+
+### Diagrama de alto nivel (actualizado)
+
+```mermaid
+flowchart TB
+  subgraph borde["Borde / simulación"]
+    P["Publicador\n:9102 /metrics"]
+  end
+  subgraph aws["AWS"]
+    IOT["AWS IoT Core\nMQTT TLS 8883"]
+  end
+  subgraph stack["Docker Compose"]
+    S["Subscriber\n:9101 /metrics"]
+    M[("MongoDB\nmina_iot")]
+    EX["mongodb_exporter\n:9216"]
+    API["Flask :5000\n/apidocs"]
+    UI["Streamlit :8501"]
+    PR["Prometheus :9090"]
+    GF["Grafana :3000"]
+  end
+  P --> IOT
+  IOT --> S
+  S --> M
+  EX --> M
+  API --> M
+  UI --> API
+  PR --> S
+  PR --> P
+  PR --> EX
+  PR --> PR
+  GF --> PR
+```
 
 ## 4. Escalabilidad (cómo crecería el sistema)
 

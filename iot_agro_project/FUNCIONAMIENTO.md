@@ -41,10 +41,21 @@ La telemetría sale por **MQTT** hacia **AWS IoT Core** (broker gestionado). Un 
 │                                 │             ┌────────────┴────────────┐ │
 │                                 │             │ Streamlit :8501       │ │
 │                                 │             └───────────────────────┘ │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────────────────┐  │
+│  │ prometheus   │──│ scrape       │  │ subscriber :9101 /metrics   │  │
+│  │ :9090        │  │              │  │ publicador  :9102 /metrics  │  │
+│  └──────┬───────┘  └──────────────┘  │ mongodb_exporter :9216      │  │
+│         │                              └─────────────────────────────┘  │
+│  ┌──────▼───────┐                                                       │
+│  │ Grafana      │  Dashboard «Mina IoT — Métricas técnicas»           │
+│  │ :3000        │  (latencia, frecuencia, tamaño datos MongoDB)        │
+│  └──────────────┘                                                       │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Orden lógico de arranque (Compose):** MongoDB *healthy* → subscriber y API → API *healthy* → Streamlit; los publicadores esperan al subscriber *started* para reducir pérdidas tempranas de mensajes.
+**Orden lógico de arranque (Compose):** MongoDB *healthy* → subscriber, API y mongodb_exporter → API *healthy* → Streamlit; publicador tras subscriber *started*; Prometheus tras subscriber, publicador y exporter; Grafana tras Prometheus.
+
+**Observabilidad:** el publicador añade **`published_at`** (ISO UTC) a cada JSON MQTT para que el subscriber calcule **latencia** (histograma Prometheus); ese campo **no se guarda** en MongoDB (se elimina antes del `insert_one`). El `timestamp` del documento sigue siendo el instante de persistencia en el subscriber.
 
 ---
 
@@ -70,7 +81,20 @@ La evaluación sumativa exige el broker **ya configurado en AWS IoT Core** y **n
 ## 5. REST API y Streamlit
 
 - **Flask** expone JSON (`/logs`, `/meta`, `/health`) para no acoplar la UI a MongoDB.
+- **Swagger UI (Flasgger):** `GET /apidocs/` — documentación interactiva OpenAPI 2.0 del mismo API.
 - **Streamlit** hace polling HTTP (actualización cuasi en tiempo real), no suscripción MQTT en el navegador.
+
+---
+
+## 5b. Prometheus y Grafana
+
+| Servicio | Puerto (host) | Función |
+|----------|----------------|---------|
+| Prometheus | 9090 | Almacena series; *scrape* cada 10 s a subscriber, publicador, mongodb_exporter y a sí mismo |
+| Grafana | 3000 | Visualización; datasource Prometheus precargado; dashboard **Mina IoT — Métricas técnicas** |
+| Endpoints `/metrics` | 9101 / 9102 / 9216 | Texto formato Prometheus (contadores, histogramas, exporter MongoDB) |
+
+Consultas de ejemplo desde el host: scripts `monitoring/scripts/consultar_metricas.ps1` (PowerShell) o `consultar_metricas.sh` (Bash). En Prometheus: menú **Graph** o **Status → Targets** para comprobar que los *jobs* estén UP.
 
 ---
 

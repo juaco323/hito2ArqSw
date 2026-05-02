@@ -18,18 +18,24 @@ Sistema acorde a la consigna **«Sistema IoT para monitoreo de extracción miner
             │
             ▼ insert
       [MongoDB :27017] ◄── find ── [REST API Flask :5000] ◄── HTTP ── [Streamlit :8501]
+
+Prometheus :9090 ◄── scrape /metrics (subscriber :9101, publicador :9102, mongodb_exporter :9216)
+Grafana :3000 ◄── datasource Prometheus — dashboard «Mina IoT — Métricas técnicas»
 ```
 
 | Rol | Qué es | Puerto expuesto (host) |
 |-----|--------|-------------------------|
 | Broker MQTT | **AWS IoT Core** (fuera de Docker) | — (8883 en la nube) |
 | MongoDB | Base `mina_iot` | 27017 |
-| `subscriber` | PAHO MQTT → MongoDB | — |
-| `rest_api` | Flask | 5000 |
+| `subscriber` | PAHO MQTT → MongoDB; métricas Prometheus | 9101 |
+| `rest_api` | Flask + **Swagger** (`/apidocs/`) | 5000 |
 | `frontend` | Streamlit | 8501 |
-| `publicador` | Simula todos los sensores del sector (un proceso) | — |
+| `publicador` | Simula todos los sensores del sector (un proceso); métricas Prometheus | 9102 |
+| `mongodb_exporter` | Métricas de MongoDB para Prometheus | 9216 |
+| `prometheus` | Almacén de series temporales | 9090 |
+| `grafana` | Dashboards (usuario/contraseña por defecto `admin`/`admin` en compose) | 3000 |
 
-Los certificados del thing (`certs/*.pem`) se montan en volumen de solo lectura en subscriber y publicadores.
+Los certificados del thing (`certs/*.pem`) se montan en volumen de solo lectura en subscriber y publicadores. No versionar **clave privada** ni **certificado de dispositivo** en repos públicos (ver `.gitignore` en la raíz).
 
 ---
 
@@ -51,8 +57,12 @@ docker compose up --build -d
 
 **Docker Desktop:** *Containers* → *Import* / *Open* la carpeta `iot_agro_project_Zapallo`, o desde terminal en esa carpeta ejecutá el comando de arriba; el stack aparecerá como **`mina_iot_sector_norte`**.
 
-- Dashboard: `http://localhost:8501`  
-- API: `http://localhost:5000/logs` , `http://localhost:5000/health`
+- Dashboard Streamlit: `http://localhost:8501`  
+- API REST: `http://localhost:5000/health`, `http://localhost:5000/logs`, `http://localhost:5000/meta`  
+- **Swagger / OpenAPI:** `http://localhost:5000/apidocs/`  
+- **Grafana:** `http://localhost:3000`  
+- **Prometheus:** `http://localhost:9090` (estado de *targets*: `/targets`)  
+- Consultas rápidas PromQL (PowerShell): `..\monitoring\scripts\consultar_metricas.ps1` desde la raíz del repo  
 
 ---
 
@@ -61,6 +71,10 @@ docker compose up --build -d
 ```
 iot_agro_project_Zapallo/
 ├── docker-compose.yml        # Único compose del proyecto (raíz)
+├── monitoring/
+│   ├── prometheus.yml
+│   ├── grafana/              # provisioning + dashboards
+│   └── scripts/              # consultar_metricas.ps1 / .sh
 iot_agro_project/
 ├── certs/                    # Certificados AWS IoT (no versionar claves en repos públicos)
 ├── mqtt_client/subscriber.py

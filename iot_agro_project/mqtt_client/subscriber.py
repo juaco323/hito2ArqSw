@@ -5,6 +5,7 @@ import time
 from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
+from prometheus_client import Counter, Histogram, start_http_server
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure
 
@@ -14,10 +15,25 @@ AWS_ENDPOINT = os.getenv("AWS_IOT_ENDPOINT", "a2apsmaa0mdv52-ats.iot.us-east-1.a
 AWS_PORT = 8883
 CERT_DIR = os.getenv("CERT_DIR", "/app/certs")
 TOPIC = f"mina/{SECTOR_ID}/#"
+METRICS_PORT = int(os.getenv("METRICS_PORT", "9101"))
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongodb:27017/")
 DB_NAME = os.getenv("MONGO_DB", "mina_iot")
 COLL_NAME = os.getenv("MONGO_COLLECTION", "lecturas")
+
+LATENCY_SECONDS = Histogram(
+    "mina_mqtt_ingest_latency_seconds",
+    "Tiempo desde published_at (publicador) hasta recepción en subscriber",
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
+)
+MESSAGES_RECEIVED = Counter(
+    "mina_mqtt_messages_received_total",
+    "Mensajes MQTT del grupo/sector correctos persistidos en MongoDB",
+)
+MESSAGES_IGNORED = Counter(
+    "mina_mqtt_messages_ignored_total",
+    "Mensajes MQTT descartados (grupo o sector distinto)",
+)
 
 
 def conectar_mongo(reintentos=10, espera=3):
@@ -32,6 +48,30 @@ def conectar_mongo(reintentos=10, espera=3):
             time.sleep(espera)
     raise RuntimeError("No se pudo conectar a MongoDB tras varios intentos")
 
+
+def _parse_published_at(raw):
+    if not raw or not isinstance(raw, str):
+        return None
+    s = raw.strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        return None
+
+
+def _latency_seconds(pub_at):
+    if pub_at is None:
+        return None
+    now = datetime.now(timezone.utc)
+    return max(0.0, (now - pub_at).total_seconds())
+
+
+# /metrics antes de Mongo para que Prometheus pueda scrapear aunque la DB tarde
+start_http_server(METRICS_PORT)
+print(f"Métricas Prometheus en puerto {METRICS_PORT}")
 
 mongo = conectar_mongo()
 coleccion = mongo[DB_NAME][COLL_NAME]
@@ -57,14 +97,23 @@ def on_message(client, userdata, msg):
 
         if data.get("grupo") != GRUPO:
             print(f"Mensaje ignorado (grupo): {data.get('grupo')} topic={msg.topic}")
+            MESSAGES_IGNORED.inc()
             return
         if data.get("sector") != SECTOR_ID:
             print(f"Mensaje ignorado (sector): {data.get('sector')} topic={msg.topic}")
+            MESSAGES_IGNORED.inc()
             return
+
+        pub_raw = data.pop("published_at", None)
+        pub_dt = _parse_published_at(pub_raw)
+        lat = _latency_seconds(pub_dt)
+        if lat is not None:
+            LATENCY_SECONDS.observe(lat)
 
         data["timestamp"] = datetime.now(timezone.utc)
         data["topic_mqtt"] = msg.topic
         coleccion.insert_one(data)
+        MESSAGES_RECEIVED.inc()
         print(f"Guardado MongoDB topic={msg.topic} sensor={data.get('sensor')}")
     except Exception as e:
         print(f"Error procesando mensaje: {e}")

@@ -3,13 +3,34 @@
 Incluye producción, química y seguridad. Sin broker local.
 """
 import json
+import os
 import random
 import ssl
 import time
+from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
+from prometheus_client import Counter, start_http_server
 
 from config import AWS_ENDPOINT, AWS_PORT, CERT_DIR, GRUPO, SECTOR_ID, topic
+
+METRICS_PORT = int(os.getenv("METRICS_PORT", "9102"))
+
+METRICS_PUBLISHED = Counter(
+    "mina_mqtt_messages_published_total",
+    "Total de mensajes MQTT publicados (QoS 1)",
+)
+
+
+def published_payload(base: dict) -> dict:
+    """Copia el payload y añade marca temporal UTC para medir latencia en el subscriber."""
+    out = dict(base)
+    out["published_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    return out
+
+
+# Métricas Prometheus (HTTP /metrics) en hilo daemon
+start_http_server(METRICS_PORT)
 
 client = mqtt.Client(client_id="pub_zona_norte_fvz", protocol=mqtt.MQTTv311)
 client.tls_set(
@@ -32,6 +53,7 @@ client.connect(AWS_ENDPOINT, AWS_PORT, keepalive=60)
 client.loop_start()
 
 print(f"[Zona] Publicando telemetría mina/{SECTOR_ID}/{{produccion,quimica,seguridad}}/*")
+print(f"[Zona] Métricas Prometheus en puerto {METRICS_PORT}")
 
 try:
     while True:
@@ -137,7 +159,9 @@ try:
             ),
         ]
         for t, data in ronda:
-            client.publish(t, json.dumps(data), qos=1)
+            body = published_payload(data)
+            client.publish(t, json.dumps(body), qos=1)
+            METRICS_PUBLISHED.inc()
             print(f"[Zona] {t}")
             time.sleep(1)
         time.sleep(4)
