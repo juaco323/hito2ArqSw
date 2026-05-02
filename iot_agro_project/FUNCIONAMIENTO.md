@@ -100,7 +100,7 @@ Consultas de ejemplo desde el host: scripts `monitoring/scripts/consultar_metric
 
 ## 6. MongoDB
 
-Cada mensaje aceptado por el subscriber genera un documento con `timestamp` (UTC), `sector`, `categoria`, `sensor`, `valor`, `unidad`, `topic_mqtt`, `grupo`, etc.
+Cada mensaje aceptado por el subscriber genera un documento con `timestamp` (UTC), `sector`, `categoria`, `sensor`, `valor`, `unidad`, `topic_mqtt`, etc.
 
 ---
 

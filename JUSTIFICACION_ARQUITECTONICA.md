@@ -21,7 +21,7 @@ Esta separación desacopla el **ritmo de publicación MQTT** del **consumo HTTP*
 
 ### 2.1 Topics MQTT jerárquicos (`mina/<sector>/<categoría>/<métrica>`)
 
-**Decisión:** Usar una convención alineada con la consigna del PDF (`mina/zona_norte/...`), sustituyendo la zona por el identificador del grupo **sector_norte_Fuenzalida_Vallejos**.
+**Decisión:** Usar una convención alineada con la consigna del PDF (`mina/zona_norte/...`), sustituyendo la zona por el identificador de **sector** **sector_norte_Fuenzalida_Vallejos**.
 
 **Por qué:**
 
@@ -43,7 +43,7 @@ Esta separación desacopla el **ritmo de publicación MQTT** del **consumo HTTP*
 
 ### 2.3 MongoDB (NoSQL, documentos)
 
-**Decisión:** Base **mina_iot**, colección **lecturas**, un documento por evento con campos como `sector`, `categoria`, `sensor`, `valor`, `unidad`, `timestamp`, `topic_mqtt`, `grupo`.
+**Decisión:** Base **mina_iot**, colección **lecturas**, un documento por evento con campos como `sector`, `categoria`, `sensor`, `valor`, `unidad`, `timestamp`, `topic_mqtt`.
 
 **Por qué:**
 
@@ -156,8 +156,8 @@ flowchart TB
 **P: ¿Usan Mosquitto u otro broker en Docker? ¿Por qué no?**  
 **R:** **No.** La consigna prohibe un broker alternativo al de **AWS IoT Core**. Mosquitto en local sería un segundo broker y no cumpliría el requisito. Todo el tráfico MQTT va al endpoint de AWS (**TLS 8883**, certificados del curso).
 
-**P: ¿Cómo evitan que otro grupo “contamine” nuestra base de datos si todos usan el mismo broker?**  
-**R:** Filtramos por **`grupo`** en el payload y por **`sector`** coherente con el topic; solo persistimos si coinciden. En producción se usarían **certificados/políticas por dispositivo** y topics aislados por cuenta o prefijo.
+**P: ¿Cómo evitan que otro equipo o sector “contamine” nuestra base de datos si todos usan el mismo broker?**  
+**R:** El subscriber solo persiste mensajes cuyo **`sector` en el payload** coincide con el **sector configurado** (alineado con el topic `mina/<sector>/...`). En producción se reforzaría con **certificados/políticas por dispositivo** y prefijos de topic aislados por cuenta o entorno.
 
 **P: ¿Por qué Flask y no GraphQL / FastAPI?**  
 **R:** La consigna pide Flask explícito y el dominio es **consultas simples** de lectura; FastAPI podría ser alternativa moderna, pero no aporta ventaja decisiva para este alcance.

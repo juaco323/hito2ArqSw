@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import paho.mqtt.client as mqtt
 from prometheus_client import Counter, start_http_server
 
-from config import AWS_ENDPOINT, AWS_PORT, CERT_DIR, GRUPO, SECTOR_ID, topic
+from config import AWS_ENDPOINT, AWS_PORT, CERT_DIR, SECTOR_ID, topic
 
 METRICS_PORT = int(os.getenv("METRICS_PORT", "9102"))
 
@@ -66,7 +66,6 @@ try:
                     "sensor": "toneladas_hora",
                     "valor": round(random.uniform(120, 420), 2),
                     "unidad": "t/h",
-                    "grupo": GRUPO,
                 },
             ),
             (
@@ -77,7 +76,6 @@ try:
                     "sensor": "ciclos",
                     "valor": random.randint(8, 28),
                     "unidad": "ciclos/h",
-                    "grupo": GRUPO,
                 },
             ),
             (
@@ -88,7 +86,6 @@ try:
                     "sensor": "ph",
                     "valor": round(random.uniform(6.2, 8.4), 2),
                     "unidad": "pH",
-                    "grupo": GRUPO,
                 },
             ),
             (
@@ -99,7 +96,6 @@ try:
                     "sensor": "co2",
                     "valor": round(random.uniform(380, 950), 1),
                     "unidad": "ppm",
-                    "grupo": GRUPO,
                 },
             ),
             (
@@ -110,7 +106,6 @@ try:
                     "sensor": "so2",
                     "valor": round(random.uniform(0.02, 0.35), 3),
                     "unidad": "ppm",
-                    "grupo": GRUPO,
                 },
             ),
             (
@@ -121,7 +116,6 @@ try:
                     "sensor": "material_particulado",
                     "valor": round(random.uniform(35, 160), 1),
                     "unidad": "μg/m³",
-                    "grupo": GRUPO,
                 },
             ),
             (
@@ -132,7 +126,6 @@ try:
                     "sensor": "temperatura",
                     "valor": round(random.uniform(12, 34), 2),
                     "unidad": "°C",
-                    "grupo": GRUPO,
                 },
             ),
             (
@@ -143,7 +136,6 @@ try:
                     "sensor": "humedad",
                     "valor": round(random.uniform(28, 78), 2),
                     "unidad": "%",
-                    "grupo": GRUPO,
                 },
             ),
             (
@@ -154,7 +146,6 @@ try:
                     "sensor": "vibracion",
                     "valor": round(random.uniform(0.05, 2.5), 3),
                     "unidad": "m/s²",
-                    "grupo": GRUPO,
                 },
             ),
         ]

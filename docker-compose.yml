@@ -42,7 +42,6 @@ services:
       retries: 10
       start_period: 20s
     environment:
-      - GRUPO=zapallo
       - SECTOR_ID=sector_norte_Fuenzalida_Vallejos
       - MONGO_URI=mongodb://mongodb:27017/
       - MONGO_DB=mina_iot
@@ -59,7 +58,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
     environment:
-      - GRUPO=zapallo
       - SECTOR_ID=sector_norte_Fuenzalida_Vallejos
       - AWS_IOT_ENDPOINT=a2apsmaa0mdv52-ats.iot.us-east-1.amazonaws.com
       - CERT_DIR=/app/certs
@@ -81,7 +79,6 @@ services:
         condition: service_started
     restart: unless-stopped
     environment:
-      - GRUPO=zapallo
       - SECTOR_ID=sector_norte_Fuenzalida_Vallejos
       - AWS_IOT_ENDPOINT=a2apsmaa0mdv52-ats.iot.us-east-1.amazonaws.com
       - CERT_DIR=/app/certs

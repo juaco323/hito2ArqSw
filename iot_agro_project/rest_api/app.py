@@ -21,7 +21,6 @@ Swagger(
     },
 )
 
-GRUPO = os.getenv("GRUPO", "zapallo")
 SECTOR_ID = os.getenv("SECTOR_ID", "sector_norte_Fuenzalida_Vallejos")
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongodb:27017/")
 DB_NAME = os.getenv("MONGO_DB", "mina_iot")
@@ -153,8 +152,6 @@ def meta():
           properties:
             sector:
               type: string
-            grupo:
-              type: string
             categorias:
               type: array
               items:
@@ -177,7 +174,6 @@ def meta():
         return jsonify(
             {
                 "sector": SECTOR_ID,
-                "grupo": GRUPO,
                 "categorias": sorted(categorias),
                 "sensores": sorted(sensores),
             }

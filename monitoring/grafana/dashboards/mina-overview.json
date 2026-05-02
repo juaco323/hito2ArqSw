@@ -125,11 +125,11 @@
         {
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "expr": "mina_mqtt_messages_ignored_total",
-          "legendFormat": "ignorados (filtro grupo/sector)",
+          "legendFormat": "ignorados (filtro sector)",
           "refId": "A"
         }
       ],
-      "title": "Mensajes MQTT ignorados (acum.)",
+      "title": "Mensajes MQTT ignorados — sector distinto (acum.)",
       "type": "stat"
     }
   ],

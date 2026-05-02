@@ -9,7 +9,6 @@ from prometheus_client import Counter, Histogram, start_http_server
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure
 
-GRUPO = os.getenv("GRUPO", "zapallo")
 SECTOR_ID = os.getenv("SECTOR_ID", "sector_norte_Fuenzalida_Vallejos")
 AWS_ENDPOINT = os.getenv("AWS_IOT_ENDPOINT", "a2apsmaa0mdv52-ats.iot.us-east-1.amazonaws.com")
 AWS_PORT = 8883
@@ -28,11 +27,11 @@ LATENCY_SECONDS = Histogram(
 )
 MESSAGES_RECEIVED = Counter(
     "mina_mqtt_messages_received_total",
-    "Mensajes MQTT del grupo/sector correctos persistidos en MongoDB",
+    "Mensajes MQTT del sector esperado persistidos en MongoDB",
 )
 MESSAGES_IGNORED = Counter(
     "mina_mqtt_messages_ignored_total",
-    "Mensajes MQTT descartados (grupo o sector distinto)",
+    "Mensajes MQTT descartados (sector del payload distinto al configurado)",
 )
 
 
@@ -95,10 +94,6 @@ def on_message(client, userdata, msg):
             data.setdefault("categoria", partes[2])
             data.setdefault("sensor", partes[3])
 
-        if data.get("grupo") != GRUPO:
-            print(f"Mensaje ignorado (grupo): {data.get('grupo')} topic={msg.topic}")
-            MESSAGES_IGNORED.inc()
-            return
         if data.get("sector") != SECTOR_ID:
             print(f"Mensaje ignorado (sector): {data.get('sector')} topic={msg.topic}")
             MESSAGES_IGNORED.inc()

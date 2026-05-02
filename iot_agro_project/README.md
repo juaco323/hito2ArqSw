@@ -90,7 +90,7 @@ iot_agro_project/
 | Síntoma | Qué revisar |
 |---------|----------------|
 | Clientes MQTT no conectan | Política IAM del certificado en AWS IoT; endpoint `AWS_IOT_ENDPOINT`; validez del certificado |
-| API sin datos | Subscriber corriendo y escribiendo en MongoDB; mismo `GRUPO`/`SECTOR_ID` en publicadores y subscriber |
+| API sin datos | Subscriber corriendo y escribiendo en MongoDB; mismo `SECTOR_ID` en publicador y subscriber |
 | Frontend vacío | `rest_api` healthy; esperar unos segundos tras el arranque |
 
 ---
