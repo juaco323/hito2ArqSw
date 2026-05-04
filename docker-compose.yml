@@ -1,4 +1,5 @@
 # Proyecto: mina_iot_sector_norte — abrir esta carpeta en Docker Desktop y ejecutar el compose.
+# Antes de entregar o demo: sube los cambios a GitHub (git push) para que el rebuild refleje el mismo código que el remoto.
 # CLI: docker compose up --build -d
 # Stack: MongoDB, subscriber (AWS IoT), publicador, Flask, Streamlit (sin broker MQTT local).
 # Monitorización: Prometheus :9090, Grafana :3000 (admin/admin), MongoDB exporter :9216.

@@ -12,7 +12,7 @@ El sistema sigue un patrón **orientado a eventos / publicar–suscribir** entre
 2. El **subscriber** se suscribe con un wildcard jerárquico al prefijo del sector y persiste cada mensaje válido en **MongoDB** con marca temporal **UTC** (`timestamp` al persistir). Expone métricas **Prometheus** en `:9101`.
 3. **Flask** expone la colección mediante **REST** (solo lectura para el dashboard), con documentación interactiva **Swagger** en `/apidocs/`, filtrando por categoría y tipo de sensor.
 4. **Streamlit** consume el API, aplica filtros en la UI y muestra tablas y **gráficos de tendencia** (Plotly), con actualización **cuasi en tiempo real** (auto-refresh).
-5. **Prometheus** recolecta series temporales del subscriber, del publicador (`:9102`), del **mongodb_exporter** (`:9216`) y de sí mismo; **Grafana** (`:3000`) visualiza un dashboard con **latencia de transmisión**, **frecuencia de publicación/ingesta** y **volumen aproximado de datos** en MongoDB.
+5. **Prometheus** recolecta series temporales del subscriber, del publicador (`:9102`), del **mongodb_exporter** (`:9216`) y de sí mismo; **Grafana** (`:3000`) visualiza un dashboard provisionado con **latencia de transmisión**, **frecuencia de publicación/ingesta** y un panel de **mensajes MQTT ignorados** (filtro por sector). El **tamaño de datos en MongoDB** sigue estando disponible en Prometheus vía el exporter (`mongodb_dbstats_data_size_bytes`) o con **mongosh**, aunque no forma parte de ese dashboard por defecto.
 6. **Docker Compose** orquesta MongoDB, subscriber, API, frontend, publicador, Prometheus, Grafana y el exporter para un despliegue reproducible.
 
 Esta separación desacopla el **ritmo de publicación MQTT** del **consumo HTTP** del operador: los sensores no conocen al dashboard; el dashboard no bloquea la ingesta. La capa de observabilidad mide el sistema sin formar parte del camino crítico MQTT→MongoDB→REST.
@@ -82,11 +82,11 @@ Esta separación desacopla el **ritmo de publicación MQTT** del **consumo HTTP*
 
 ### 2.7 Observabilidad (Prometheus + Grafana)
 
-**Decisión:** **Prometheus** hace *scrape* periódico de endpoints `/metrics` (formato estándar); **Grafana** consume Prometheus como *datasource* y muestra paneles de latencia (histograma `mina_mqtt_ingest_latency_seconds`), tasas de mensajes publicados/recibidos y tamaño de datos de BD vía **mongodb_exporter**.
+**Decisión:** **Prometheus** hace *scrape* periódico de endpoints `/metrics` (formato estándar); **Grafana** consume Prometheus como *datasource* y el dashboard versionado en el repositorio muestra **latencia** (`mina_mqtt_ingest_latency_seconds`), **tasas** de mensajes publicados/recibidos y el contador de **mensajes ignorados por sector**. El **mongodb_exporter** aporta series sobre MongoDB (p. ej. tamaño de datos) **disponibles en Prometheus** para consultas o paneles adicionales.
 
 **Por qué:**
 
-- Las métricas técnicas pedidas en la rúbrica (latencia, frecuencia, volumen almacenado) quedan **verificables** con consultas PromQL y dashboards, sin acoplar la instrumentación al frontend Streamlit.
+- Las métricas técnicas de la rúbrica (latencia, frecuencia, volumen almacenado) quedan **verificables** con PromQL, Grafana y, para volumen, también **mongosh** o el exporter, sin acoplar la instrumentación al frontend Streamlit.
 - Prometheus y Grafana son el par habitual **recolectar / visualizar**; no sustituyen al broker ni a MongoDB.
 
 ### 2.8 Documentación de API (Flask + Flasgger)
