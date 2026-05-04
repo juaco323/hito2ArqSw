@@ -83,38 +83,12 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {
         "defaults": {
-          "color": {"mode": "palette-classic"},
-          "custom": {"drawStyle": "line", "fillOpacity": 10, "lineWidth": 2},
-          "unit": "bytes"
-        }
-      },
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 9},
-      "id": 3,
-      "options": {
-        "legend": {"displayMode": "list", "placement": "bottom"},
-        "tooltip": {"mode": "single"}
-      },
-      "targets": [
-        {
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
-          "expr": "sum(mongodb_dbstats_data_size_bytes{database=\"mina_iot\"}) or sum(mongodb_dbstats_data_size_bytes)",
-          "legendFormat": "tamaño datos BD mina_iot",
-          "refId": "A"
-        }
-      ],
-      "title": "Volumen aproximado de datos en MongoDB (dbstats dataSize)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "fieldConfig": {
-        "defaults": {
           "color": {"mode": "thresholds"},
           "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]},
           "unit": "none"
         }
       },
-      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 17},
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 9},
       "id": 4,
       "options": {
         "colorMode": "value",
