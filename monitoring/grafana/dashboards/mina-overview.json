@@ -89,7 +89,7 @@
         }
       },
       "gridPos": {"h": 4, "w": 8, "x": 0, "y": 9},
-      "id": 4,
+      "id": 3,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
@@ -116,5 +116,5 @@
   "timezone": "browser",
   "title": "Mina IoT — Métricas técnicas",
   "uid": "mina-iot-metrics",
-  "version": 1
+  "version": 2
 }
